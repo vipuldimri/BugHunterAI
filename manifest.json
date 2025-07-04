@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Network Request Recorder",
+  "name": "BugHunterAI",
   "version": "1.0",
   "description": "Record network requests including headers, payload, and body",
   "permissions": [
@@ -17,7 +17,8 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
     {

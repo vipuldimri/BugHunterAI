@@ -1,3 +1,5 @@
+import { saveLatestSession } from './db.js';
+
 // Background service worker for network request recording
 let isRecording = false;
 let recordedRequests = [];
@@ -163,8 +165,12 @@ async function stopRecording() {
   if (debuggerAttached) {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      await chrome.debugger.detach({ tabId: tab.id });
-      debuggerAttached = false;
+      const targets = await new Promise(resolve => chrome.debugger.getTargets(resolve));
+      const target = targets.find(t => t.tabId === tab.id);
+      if (target && target.attached) {
+        await chrome.debugger.detach({ tabId: tab.id });
+        debuggerAttached = false;
+      }
     } catch (error) {
       console.error('Failed to detach debugger:', error);
     }
@@ -447,10 +453,8 @@ async function stopRecordingSession() {
   try {
     // Stop network recording
     await stopRecording();
-    
     // Stop screen recording
     await stopScreenRecording();
-    
     // Clear session state
     currentSessionTabId = null;
     sessionStartTime = null;
@@ -458,12 +462,37 @@ async function stopRecordingSession() {
       currentSessionTabId: null,
       sessionStartTime: null
     });
-    
     console.log('Recording session stopped');
+    // Save session to IndexedDB
+    await saveSessionToIndexedDB();
     // Open preview tab with session data
     openPreviewTab();
   } catch (error) {
     console.error('Failed to stop recording session:', error);
+  }
+}
+
+async function saveSessionToIndexedDB() {
+  try {
+    // Get the current active tab (for video export)
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    let videoBlob = null;
+    try {
+      const response = await chrome.tabs.sendMessage(tab.id, { action: 'getScreenRecordingBlobData' });
+      if (response && response.blob) {
+        videoBlob = response.blob;
+      }
+    } catch (e) {
+      // No video or content script not available
+    }
+    await saveLatestSession({
+      network: recordedRequests,
+      console: consoleLogs,
+      videoBlob: videoBlob || null
+    });
+    console.log('Session saved to IndexedDB');
+  } catch (e) {
+    console.error('Failed to save session to IndexedDB:', e);
   }
 }
 

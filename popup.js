@@ -19,6 +19,7 @@ const pendingRequests = document.getElementById('pendingRequests');
 const totalLogs = document.getElementById('totalLogs');
 const requestsList = document.getElementById('requestsList');
 const logsList = document.getElementById('logsList');
+const openLastSessionBtn = document.getElementById('openLastSessionBtn');
 
 // Initialize popup
 document.addEventListener('DOMContentLoaded', () => {
@@ -60,6 +61,9 @@ function setupEventListeners() {
   exportNetworkBtn.addEventListener('click', exportNetworkRequests);
   exportConsoleBtn.addEventListener('click', exportConsoleLogs);
   exportVideoBtn.addEventListener('click', exportScreenRecording);
+  openLastSessionBtn.addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('preview.html') });
+  });
   
   // Tab switching
   document.querySelectorAll('.tab-btn').forEach(btn => {

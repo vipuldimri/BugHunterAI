@@ -268,15 +268,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             title: document.title,
             userAgent: navigator.userAgent
         });
-    } else if (request.action === 'getScreenRecordingBlob') {
-        // Return the current video as a blob URL (if available)
+    } else if (request.action === 'getScreenRecordingBlobData') {
+        // Send the actual video Blob (not just a URL)
         if (recordedChunks && recordedChunks.length > 0) {
             const blob = new Blob(recordedChunks, { type: 'video/webm' });
-            const blobUrl = URL.createObjectURL(blob);
-            sendResponse({ blobUrl });
+            // Use MessageChannel for binary data
+            const channel = new MessageChannel();
+            channel.port1.onmessage = (event) => {
+                // No-op, just for transfer
+            };
+            // Send the blob via transferable
+            sendResponse({ blob });
         } else {
-            sendResponse({ blobUrl: null });
+            sendResponse({ blob: null });
         }
+        return true; // Indicate async response
     } else if (request.action === 'startScreenRecording') {
         // Handle screen recording start
         isActiveSession = true;

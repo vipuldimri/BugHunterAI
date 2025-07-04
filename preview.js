@@ -1,5 +1,7 @@
 // preview.js
 
+import { getLatestSession } from './db.js';
+
 // --- Video ---
 const videoFileInput = document.getElementById('videoFile');
 const videoDrop = document.getElementById('videoDrop');
@@ -199,23 +201,36 @@ function escapeHtml(str) {
   });
 }
 
-// Auto-load session data from chrome.storage.local if present
-if (window.chrome && chrome.storage && chrome.storage.local) {
-  chrome.storage.local.get(['preview_network', 'preview_console', 'preview_video'], (result) => {
-    if (result.preview_network) {
-      networkData = result.preview_network;
-      renderNetworkTable();
+// --- Load latest session from IndexedDB on page load ---
+window.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const session = await getLatestSession();
+    if (session) {
+      if (session.network) {
+        networkData = session.network;
+        renderNetworkTable();
+      }
+      if (session.console) {
+        consoleData = session.console;
+        renderConsoleList();
+      }
+      if (session.videoBlob) {
+        let url;
+        if (typeof session.videoBlob === 'string') {
+          url = session.videoBlob;
+        } else {
+          url = URL.createObjectURL(session.videoBlob);
+        }
+        videoPlayer.src = url;
+        videoPlayer.style.display = '';
+        videoInfo.textContent = 'Loaded from last session';
+      }
+    } else {
+      videoInfo.textContent = 'No previous session found in database.';
+      networkTab.innerHTML = '<div style="color:#888">No network requests loaded.</div>';
+      consoleTab.innerHTML = '<div style="color:#888">No console logs loaded.</div>';
     }
-    if (result.preview_console) {
-      consoleData = result.preview_console;
-      renderConsoleList();
-    }
-    if (result.preview_video) {
-      videoPlayer.src = result.preview_video;
-      videoPlayer.style.display = '';
-      videoInfo.textContent = 'Loaded from session';
-    }
-    // Clear after loading
-    chrome.storage.local.remove(['preview_network', 'preview_console', 'preview_video']);
-  });
-} 
+  } catch (e) {
+    videoInfo.textContent = 'Error loading session from database.';
+  }
+}); 
