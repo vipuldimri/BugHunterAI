@@ -1,6 +1,9 @@
 // Content script for Network Request Recorder
 // This script runs in the context of web pages
 
+if (!window.__BUGHUNTERAI_CONTENT_SCRIPT_LOADED__) {
+  window.__BUGHUNTERAI_CONTENT_SCRIPT_LOADED__ = true;
+
 console.log('Network Request Recorder content script loaded at:', new Date().toISOString());
 console.log('Page URL:', window.location.href);
 console.log('Document ready state:', document.readyState);
@@ -10,6 +13,8 @@ let mediaRecorder = null;
 let recordedChunks = [];
 let isScreenRecording = false;
 let screenStream = null;
+let pendingSessionSave = null;
+let pendingBlobRequests = [];
 
 // Initialize content script
 async function initializeContentScript() {
@@ -269,18 +274,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             userAgent: navigator.userAgent
         });
     } else if (request.action === 'getScreenRecordingBlobData') {
-        // Send the actual video Blob (not just a URL)
-        if (recordedChunks && recordedChunks.length > 0) {
+        // Handle blob request with proper timing
+        console.log('getScreenRecordingBlobData requested');
+        console.log('mediaRecorder state:', mediaRecorder ? mediaRecorder.state : 'null');
+        console.log('recordedChunks length:', recordedChunks ? recordedChunks.length : 'null');
+        console.log('isScreenRecording:', isScreenRecording);
+        
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            // Recording is still in progress, queue the response
+            console.log('Recording still active, queueing blob request...');
+            pendingBlobRequests.push(sendResponse);
+            mediaRecorder.addEventListener('stop', handlePendingBlobRequests, { once: true });
+            mediaRecorder.stop();
+            return true; // Indicate async response
+        } else if (recordedChunks && recordedChunks.length > 0) {
+            // Recording already stopped, chunks are available
+            console.log('Chunks available, creating blob URL...');
             const blob = new Blob(recordedChunks, { type: 'video/webm' });
-            // Use MessageChannel for binary data
-            const channel = new MessageChannel();
-            channel.port1.onmessage = (event) => {
-                // No-op, just for transfer
-            };
-            // Send the blob via transferable
-            sendResponse({ blob });
+            const blobUrl = URL.createObjectURL(blob);
+            console.log('Blob URL created:', blobUrl);
+            sendResponse({ blobUrl });
         } else {
-            sendResponse({ blob: null });
+            // No recording or no chunks available
+            console.log('No chunks available, sending null blobUrl');
+            sendResponse({ blobUrl: null });
         }
         return true; // Indicate async response
     } else if (request.action === 'startScreenRecording') {
@@ -297,10 +314,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
         return true;
     } else if (request.action === 'exportScreenRecording') {
-        // Handle screen recording export
-        exportScreenRecording().then(success => {
+        // Handle screen recording export (manual export, clear chunks)
+        exportScreenRecording(true).then(success => {
             sendResponse({ success: success });
         });
+        return true;
+    } else if (request.action === 'saveSessionToIndexedDB') {
+        console.log('Received saveSessionToIndexedDB in content script', request);
+        const { network, console: consoleLogs } = request;
+        stopScreenRecordingAndSaveSession(network, consoleLogs, sendResponse);
         return true;
     }
 });
@@ -350,6 +372,10 @@ async function startScreenRecording() {
         });
         
         recordedChunks = [];
+        // Clear any pending requests from previous recordings
+        pendingBlobRequests = [];
+        pendingSessionSave = null;
+        console.log('Cleared previous recording state, ready for new recording');
         
         mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0) {
@@ -359,9 +385,11 @@ async function startScreenRecording() {
         };
         
         mediaRecorder.onstop = () => {
-            console.log('Screen recording stopped, auto-exporting...');
-            // Auto-export when recording stops
-            exportScreenRecording();
+            console.log('Screen recording stopped, handling pending requests...');
+            // Handle any pending blob requests first
+            handlePendingBlobRequests();
+            // Auto-export when recording stops (but preserve chunks for session save)
+            exportScreenRecording(false);
         };
         
         mediaRecorder.onerror = (event) => {
@@ -401,7 +429,7 @@ async function stopScreenRecording() {
 }
 
 // Export screen recording
-async function exportScreenRecording() {
+async function exportScreenRecording(clearChunks = true) {
     try {
         if (recordedChunks.length === 0) {
             console.log('No screen recording to export');
@@ -421,7 +449,14 @@ async function exportScreenRecording() {
         
         // Clean up
         URL.revokeObjectURL(url);
-        recordedChunks = [];
+        
+        // Only clear chunks if explicitly requested (for manual exports)
+        if (clearChunks) {
+            recordedChunks = [];
+            console.log('Screen recording exported and chunks cleared');
+        } else {
+            console.log('Screen recording exported, chunks preserved for session save');
+        }
         
         console.log('Screen recording exported successfully');
         return true;
@@ -429,4 +464,81 @@ async function exportScreenRecording() {
         console.error('Screen recording export failed:', error);
         return false;
     }
+}
+
+function stopScreenRecordingAndSaveSession(network, consoleLogs, sendResponse) {
+    if (isScreenRecording && mediaRecorder && mediaRecorder.state !== 'inactive') {
+        console.log('Screen recording still active, queueing session save...');
+        pendingSessionSave = { network, consoleLogs, sendResponse };
+        mediaRecorder.addEventListener('stop', handlePendingSessionSave, { once: true });
+        mediaRecorder.stop();
+    } else {
+        saveSessionWithVideo(network, consoleLogs, sendResponse);
+    }
+}
+
+function handlePendingSessionSave() {
+    if (pendingSessionSave) {
+        const { network, consoleLogs, sendResponse } = pendingSessionSave;
+        saveSessionWithVideo(network, consoleLogs, sendResponse);
+        pendingSessionSave = null;
+    }
+    // Also handle any pending blob requests
+    handlePendingBlobRequests();
+}
+
+function handlePendingBlobRequests() {
+    console.log('handlePendingBlobRequests called');
+    console.log('pendingBlobRequests length:', pendingBlobRequests.length);
+    console.log('recordedChunks length:', recordedChunks ? recordedChunks.length : 'null');
+    
+    if (pendingBlobRequests.length > 0 && recordedChunks && recordedChunks.length > 0) {
+        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        const blobUrl = URL.createObjectURL(blob);
+        console.log('Fulfilling blob requests with blob URL:', blobUrl);
+        while (pendingBlobRequests.length > 0) {
+            const cb = pendingBlobRequests.shift();
+            cb({ blobUrl });
+        }
+    } else {
+        console.log('No chunks available, fulfilling blob requests with null');
+        while (pendingBlobRequests.length > 0) {
+            const cb = pendingBlobRequests.shift();
+            cb({ blobUrl: null });
+        }
+    }
+}
+
+async function saveSessionWithVideo(network, consoleLogs, sendResponse) {
+    let videoBlobUrl = null;
+    console.log('MediaRecorder state at save:', mediaRecorder ? mediaRecorder.state : 'none');
+    console.log('isScreenRecording:', isScreenRecording);
+    console.log('recordedChunks length at save:', recordedChunks.length);
+    if (recordedChunks && recordedChunks.length > 0) {
+        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        videoBlobUrl = URL.createObjectURL(blob);
+        console.log('Saving video as blob URL:', videoBlobUrl);
+    }
+    window.saveLatestSession({ network, console: consoleLogs, videoBlobUrl: videoBlobUrl })
+        .then(() => {
+            console.log('Session saved to IndexedDB in content script');
+            // Clear chunks after successful save
+            recordedChunks = [];
+            console.log('Chunks cleared after session save');
+            sendResponse({ success: true });
+        })
+        .catch((e) => {
+            console.error('Failed to save session in content script:', e);
+            sendResponse({ success: false, error: e.message });
+        });
+}
+
+async function blobToDataURL(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
 } 

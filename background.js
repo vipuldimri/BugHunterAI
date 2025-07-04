@@ -164,15 +164,23 @@ async function stopRecording() {
   
   if (debuggerAttached) {
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       const targets = await new Promise(resolve => chrome.debugger.getTargets(resolve));
-      const target = targets.find(t => t.tabId === tab.id);
+      const target = targets.find(t => t.tabId === currentSessionTabId);
       if (target && target.attached) {
-        await chrome.debugger.detach({ tabId: tab.id });
-        debuggerAttached = false;
+        try {
+          await chrome.debugger.detach({ tabId: currentSessionTabId });
+          debuggerAttached = false;
+        } catch (error) {
+          if (error && error.message && error.message.includes('Debugger is not attached')) {
+            // Ignore, this is expected if the debugger was already detached
+            console.warn('Debugger was already detached from tab', currentSessionTabId);
+          } else {
+            console.error('Failed to detach debugger:', error);
+          }
+        }
       }
     } catch (error) {
-      console.error('Failed to detach debugger:', error);
+      console.error('Failed to check debugger targets:', error);
     }
   }
   
@@ -455,16 +463,17 @@ async function stopRecordingSession() {
     await stopRecording();
     // Stop screen recording
     await stopScreenRecording();
-    // Clear session state
+    console.log('Recording session stopped');
+    
+    // Save session to IndexedDB
+    await saveSessionToIndexedDB();
+    // Now clear session state
     currentSessionTabId = null;
     sessionStartTime = null;
     chrome.storage.local.set({ 
       currentSessionTabId: null,
       sessionStartTime: null
     });
-    console.log('Recording session stopped');
-    // Save session to IndexedDB
-    await saveSessionToIndexedDB();
     // Open preview tab with session data
     openPreviewTab();
   } catch (error) {
@@ -474,23 +483,38 @@ async function stopRecordingSession() {
 
 async function saveSessionToIndexedDB() {
   try {
-    // Get the current active tab (for video export)
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    let videoBlob = null;
-    try {
-      const response = await chrome.tabs.sendMessage(tab.id, { action: 'getScreenRecordingBlobData' });
-      if (response && response.blob) {
-        videoBlob = response.blob;
+    let videoBlobUrl = null;
+    console.log('saveSessionToIndexedDB called, currentSessionTabId:', currentSessionTabId);
+    console.log('recordedRequests length:', recordedRequests.length);
+    console.log('consoleLogs length:', consoleLogs.length);
+    
+    if (typeof currentSessionTabId === 'number') {
+      try {
+        console.log('Attempting to get video blob URL from content script...');
+        const response = await chrome.tabs.sendMessage(currentSessionTabId, { action: 'getScreenRecordingBlobData' });
+        console.log('Content script response:', response);
+        
+        if (response && response.blobUrl) {
+          videoBlobUrl = response.blobUrl;
+          console.log('Video blob URL received:', videoBlobUrl);
+        } else {
+          console.log('No video blob URL in response');
+        }
+      } catch (e) {
+        console.error('Error getting video blob URL from content script:', e);
+        // No video or content script not available
       }
-    } catch (e) {
-      // No video or content script not available
+    } else {
+      console.log('No valid currentSessionTabId, skipping video blob URL retrieval');
     }
+    
+    console.log('Saving session to IndexedDB with videoBlobUrl:', videoBlobUrl ? 'present' : 'null');
     await saveLatestSession({
       network: recordedRequests,
       console: consoleLogs,
-      videoBlob: videoBlob || null
+      videoBlobUrl: videoBlobUrl || null
     });
-    console.log('Session saved to IndexedDB');
+    console.log('Session saved to IndexedDB successfully');
   } catch (e) {
     console.error('Failed to save session to IndexedDB:', e);
   }
@@ -585,12 +609,17 @@ async function stopScreenRecording() {
       return;
     }
     
-    // Send message to content script to stop screen recording
+    // Send message to content script to stop screen recording and wait for completion
     const response = await chrome.tabs.sendMessage(tab.id, { action: 'stopScreenRecording' });
     
     if (response && response.success) {
       screenRecording = false;
       console.log('Screen recording stopped via content script');
+      
+      // Wait for the recording to fully stop and chunks to be ready
+      console.log('Waiting for screen recording chunks to be ready...');
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
     } else {
       console.log('Failed to stop screen recording via content script');
       screenRecording = false;
@@ -711,10 +740,10 @@ async function openPreviewTab() {
   try {
     // Get the current active tab (for video export)
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    // Ask content script for the latest video blob (if any)
+    // Ask content script for the latest video blob URL (if any)
     let videoBlobUrl = null;
     try {
-      const response = await chrome.tabs.sendMessage(tab.id, { action: 'getScreenRecordingBlob' });
+      const response = await chrome.tabs.sendMessage(tab.id, { action: 'getScreenRecordingBlobData' });
       if (response && response.blobUrl) {
         videoBlobUrl = response.blobUrl;
       }

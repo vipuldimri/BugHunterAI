@@ -18,12 +18,12 @@ function openDB() {
   });
 }
 
-export async function saveLatestSession({network, console: consoleLogs, videoBlob}) {
+export async function saveLatestSession({network, console: consoleLogs, videoBlobUrl}) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    store.put({network, console: consoleLogs, videoBlob}, LATEST_KEY);
+    store.put({network, console: consoleLogs, videoBlobUrl}, LATEST_KEY);
     tx.oncomplete = () => resolve();
     tx.onerror = (e) => reject(e.target.error);
   });

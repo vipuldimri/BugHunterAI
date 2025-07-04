@@ -214,14 +214,8 @@ window.addEventListener('DOMContentLoaded', async () => {
         consoleData = session.console;
         renderConsoleList();
       }
-      if (session.videoBlob) {
-        let url;
-        if (typeof session.videoBlob === 'string') {
-          url = session.videoBlob;
-        } else {
-          url = URL.createObjectURL(session.videoBlob);
-        }
-        videoPlayer.src = url;
+      if (session.videoBlobUrl) {
+        videoPlayer.src = session.videoBlobUrl;
         videoPlayer.style.display = '';
         videoInfo.textContent = 'Loaded from last session';
       }
