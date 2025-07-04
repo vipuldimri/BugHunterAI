@@ -1,7 +1,3 @@
-// Prevent double execution if injected multiple times
-if (window.__NRR_CONTENT_SCRIPT_LOADED__) return;
-window.__NRR_CONTENT_SCRIPT_LOADED__ = true;
-
 // Content script for Network Request Recorder
 // This script runs in the context of web pages
 
@@ -9,8 +5,11 @@ console.log('Network Request Recorder content script loaded at:', new Date().toI
 console.log('Page URL:', window.location.href);
 console.log('Document ready state:', document.readyState);
 
-// Check if there's an active recording session for this tab
 let isActiveSession = false;
+let mediaRecorder = null;
+let recordedChunks = [];
+let isScreenRecording = false;
+let screenStream = null;
 
 // Initialize content script
 async function initializeContentScript() {
@@ -226,27 +225,27 @@ XMLHttpRequest.prototype.send = function(data) {
         timestamp: new Date().toISOString()
       };
         
-        // Get response headers
-        try {
-            const headerString = this.getAllResponseHeaders();
-            const headers = {};
-            headerString.split('\r\n').forEach(line => {
-                const [key, value] = line.split(': ');
-                if (key && value) {
-                    headers[key] = value;
-                }
-            });
-            responseData.headers = headers;
-        } catch (error) {
-            console.error('Error getting XHR response headers:', error);
-        }
-        
-        if (isActiveSession) {
-          chrome.runtime.sendMessage({
-              action: 'recordResponse',
-              data: responseData
+      // Get response headers
+      try {
+          const headerString = this.getAllResponseHeaders();
+          const headers = {};
+          headerString.split('\r\n').forEach(line => {
+              const [key, value] = line.split(': ');
+              if (key && value) {
+                  headers[key] = value;
+              }
           });
-        }
+          responseData.headers = headers;
+      } catch (error) {
+          console.error('Error getting XHR response headers:', error);
+      }
+      
+      if (isActiveSession) {
+        chrome.runtime.sendMessage({
+            action: 'recordResponse',
+            data: responseData
+        });
+      }
     });
     
     return originalXHRSend.apply(this, arguments);
@@ -257,12 +256,6 @@ XMLHttpRequest.prototype.send = function(data) {
 
 // Note: Removed page load recording to focus only on Fetch/XHR requests
 // The extension now only captures dynamic API calls and AJAX requests
-
-// Screen recording variables
-let mediaRecorder = null;
-let recordedChunks = [];
-let isScreenRecording = false;
-let screenStream = null;
 
 // Listen for messages from background script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
