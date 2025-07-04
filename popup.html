@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Request Recorder</title>
+    <style>
+        body {
+            width: 400px;
+            min-height: 500px;
+            margin: 0;
+            padding: 16px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 18px;
+            color: #212529;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #0056b3;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+        
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #1e7e34;
+        }
+        
+        .btn-info {
+            background: #17a2b8;
+            color: white;
+        }
+        
+        .btn-info:hover {
+            background: #138496;
+        }
+        
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+        
+        .btn-warning:hover {
+            background: #e0a800;
+        }
+        
+        .status {
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            text-align: center;
+        }
+        
+        .status.recording {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status.stopped {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .session-warning {
+            padding: 10px;
+            margin-bottom: 16px;
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+            border-radius: 6px;
+            font-size: 13px;
+            text-align: center;
+        }
+        
+        .session-info {
+            padding: 12px;
+            margin-bottom: 16px;
+            background: #e7f3ff;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        
+        .session-details {
+            line-height: 1.4;
+        }
+        
+        .session-details strong {
+            color: #0c5460;
+        }
+        
+        .session-details small {
+            color: #6c757d;
+        }
+        
+        .stats {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            padding: 12px;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 4px;
+        }
+        
+        .requests-container {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            background: white;
+        }
+        
+        .request-item {
+            padding: 12px;
+            border-bottom: 1px solid #e9ecef;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .request-item:hover {
+            background: #f8f9fa;
+        }
+        
+        .request-item:last-child {
+            border-bottom: none;
+        }
+        
+        .request-method {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        
+        .method-get { background: #d4edda; color: #155724; }
+        .method-post { background: #d1ecf1; color: #0c5460; }
+        .method-put { background: #fff3cd; color: #856404; }
+        .method-delete { background: #f8d7da; color: #721c24; }
+        
+        .request-url {
+            font-size: 13px;
+            color: #495057;
+            word-break: break-all;
+            margin-top: 4px;
+        }
+        
+        .request-status {
+            font-size: 11px;
+            color: #6c757d;
+            margin-top: 4px;
+        }
+        
+        .no-requests {
+            padding: 20px;
+            text-align: center;
+            color: #6c757d;
+            font-style: italic;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #6c757d;
+        }
+        
+        .tabs {
+            display: flex;
+            margin-bottom: 16px;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        .tab-btn {
+            flex: 1;
+            padding: 10px 16px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 14px;
+            color: #6c757d;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .tab-btn.active {
+            color: #007bff;
+            border-bottom-color: #007bff;
+        }
+        
+        .tab-btn:hover {
+            color: #007bff;
+        }
+        
+        .tab-content {
+            position: relative;
+        }
+        
+        .tab-pane {
+            display: none;
+        }
+        
+        .tab-pane.active {
+            display: block;
+        }
+        
+        .logs-container {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            background: white;
+        }
+        
+        .log-item {
+            padding: 12px;
+            border-bottom: 1px solid #e9ecef;
+            transition: background 0.2s;
+        }
+        
+        .log-item:hover {
+            background: #f8f9fa;
+        }
+        
+        .log-item:last-child {
+            border-bottom: none;
+        }
+        
+        .log-level {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+        
+        .level-log { background: #d4edda; color: #155724; }
+        .level-error { background: #f8d7da; color: #721c24; }
+        .level-warn { background: #fff3cd; color: #856404; }
+        .level-info { background: #d1ecf1; color: #0c5460; }
+        
+        .log-message {
+            font-size: 13px;
+            color: #495057;
+            word-break: break-all;
+            margin-top: 4px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        }
+        
+        .log-timestamp {
+            font-size: 11px;
+            color: #6c757d;
+            margin-top: 4px;
+        }
+        
+        .no-logs {
+            padding: 20px;
+            text-align: center;
+            color: #6c757d;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Network Request Recorder</h1>
+    </div>
+    
+    <div id="status" class="status stopped">
+        <span id="statusText">Not Recording</span>
+    </div>
+    
+    <!-- Session warning -->
+    <div id="sessionWarning" class="session-warning" style="display: none;">
+        <span id="warningText"></span>
+    </div>
+    
+    <!-- Session information -->
+    <div id="sessionInfo" class="session-info" style="display: none;"></div>
+    
+    <div class="controls">
+        <button id="startSessionBtn" class="btn btn-primary">Start Recording Session</button>
+        <button id="stopSessionBtn" class="btn btn-secondary" disabled>Stop Recording Session</button>
+    </div>
+    
+    <div class="controls">
+        <button id="clearBtn" class="btn btn-danger">Clear All</button>
+        <button id="exportNetworkBtn" class="btn btn-success">Export Network</button>
+        <button id="exportConsoleBtn" class="btn btn-info">Export Console</button>
+        <button id="exportVideoBtn" class="btn btn-warning">Export Video</button>
+    </div>
+    
+    <div class="stats">
+        <div class="stat">
+            <div id="totalRequests" class="stat-value">0</div>
+            <div class="stat-label">Total Requests</div>
+        </div>
+        <div class="stat">
+            <div id="completedRequests" class="stat-value">0</div>
+            <div class="stat-label">Completed</div>
+        </div>
+        <div class="stat">
+            <div id="pendingRequests" class="stat-value">0</div>
+            <div class="stat-label">Pending</div>
+        </div>
+        <div class="stat">
+            <div id="totalLogs" class="stat-value">0</div>
+            <div class="stat-label">Console Logs</div>
+        </div>
+    </div>
+    
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="requests">Network Requests</button>
+        <button class="tab-btn" data-tab="logs">Console Logs</button>
+    </div>
+    
+    <div class="tab-content">
+        <div id="requestsTab" class="tab-pane active">
+            <div class="requests-container">
+                <div id="requestsList">
+                    <div class="no-requests">No requests recorded yet</div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="logsTab" class="tab-pane">
+            <div class="logs-container">
+                <div id="logsList">
+                    <div class="no-logs">No console logs recorded yet</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="popup.js"></script>
+</body>
+</html> 
